@@ -1,0 +1,11 @@
+{
+  "name": "doffy-coffee-33",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}
