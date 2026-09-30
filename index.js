@@ -7,50 +7,40 @@ const SECRET = (process.env.WEBHOOK_SECRET || "").trim();
 const BASE_URL = (process.env.RENDER_EXTERNAL_URL || "")
   .trim()
   .replace(/\/$/, "");
-
 const PORT = Number(process.env.PORT || 3000);
 
 if (!TOKEN) {
-  throw new Error("BOT_TOKEN manquant dans Render.");
+  throw new Error("La variable BOT_TOKEN manque dans Render.");
 }
 
 if (!/^[A-Za-z0-9_-]{1,256}$/.test(SECRET)) {
   throw new Error(
-    "WEBHOOK_SECRET invalide : lettres, chiffres, tirets et underscores uniquement."
+    "WEBHOOK_SECRET doit contenir entre 1 et 256 caractères : lettres, chiffres, tirets ou underscores."
   );
 }
 
-try {
-  if (new URL(BASE_URL).protocol !== "https:") {
-    throw new Error();
-  }
-} catch {
-  throw new Error(
-    "RENDER_EXTERNAL_URL doit contenir une URL HTTPS valide."
-  );
+if (!BASE_URL || new URL(BASE_URL).protocol !== "https:") {
+  throw new Error("RENDER_EXTERNAL_URL doit être une URL HTTPS.");
 }
 
-// Image envoyée dans le message d’accueil du bot.
+// Noms exacts des fichiers présents sur ton GitHub.
 const IMAGE_NAME = "accueil.jpg.PNG";
 const IMAGE_PATH = path.join(__dirname, IMAGE_NAME);
 
 if (!fs.existsSync(IMAGE_PATH)) {
-  throw new Error(
-    "Image introuvable : ajoute accueil.jpg.PNG à côté de index.js."
-  );
+  throw new Error("Le fichier accueil.jpg.PNG manque à côté de index.js.");
 }
 
 const IMAGE = fs.readFileSync(IMAGE_PATH);
 
-// Images des deux vignettes de la mini-app.
 const ASSETS = {
   "/vignette-1": {
-    file: "weed.jpeg",
-    type: "image/jpeg"
+    file: "weed.jpeg.PNG",
+    type: "image/png"
   },
   "/vignette-2": {
-    file: "hash.jpeg",
-    type: "image/jpeg"
+    file: "hash.jpeg.PNG",
+    type: "image/png"
   }
 };
 
@@ -93,7 +83,6 @@ const INFO_PAGE = `<!DOCTYPE html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Doffy Coffee 33</title>
-
   <style>
     * {
       box-sizing: border-box;
@@ -104,19 +93,21 @@ const INFO_PAGE = `<!DOCTYPE html>
       background: #000;
       color: #fff;
       font-family: Arial, sans-serif;
+      line-height: 1.6;
     }
 
     main {
+      width: 100%;
       max-width: 650px;
-      margin: auto;
-      padding: 28px 18px;
+      margin: 0 auto;
+      padding: 28px 18px 40px;
     }
 
     h1 {
       margin: 0 0 28px;
-      text-align: center;
       color: #f5c542;
-      font-size: 28px;
+      font-size: clamp(26px, 6vw, 34px);
+      text-align: center;
     }
 
     .vignettes {
@@ -125,9 +116,9 @@ const INFO_PAGE = `<!DOCTYPE html>
     }
 
     .vignette {
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      position: relative;
+      display: block;
+      width: 100%;
       aspect-ratio: 16 / 9;
       overflow: hidden;
       border: 1px solid #333;
@@ -149,7 +140,8 @@ const INFO_PAGE = `<!DOCTYPE html>
       transform: scale(0.98);
     }
 
-    a:focus-visible {
+    .vignette:focus-visible,
+    .retour:focus-visible {
       outline: 3px solid #f5c542;
       outline-offset: 4px;
     }
@@ -157,16 +149,23 @@ const INFO_PAGE = `<!DOCTYPE html>
     .retour {
       display: inline-block;
       margin-bottom: 28px;
-      padding: 12px 18px;
+      padding: 10px 18px;
       border: 1px solid #444;
       border-radius: 10px;
+      background: #111;
       color: #fff;
       text-decoration: none;
     }
 
-    p {
-      font-size: 18px;
-      line-height: 1.6;
+    .description {
+      text-align: center;
+      color: #ddd;
+    }
+
+    .erreur-image {
+      padding: 20px;
+      color: #f5c542;
+      text-align: center;
     }
 
     [hidden] {
@@ -174,7 +173,6 @@ const INFO_PAGE = `<!DOCTYPE html>
     }
   </style>
 </head>
-
 <body>
   <main>
     <section id="accueil">
@@ -187,6 +185,9 @@ const INFO_PAGE = `<!DOCTYPE html>
           aria-label="Ouvrir la présentation WEED"
         >
           <img src="/vignette-1" alt="WEED">
+          <p class="erreur-image" hidden>
+            Image indisponible : weed.jpeg.PNG
+          </p>
         </a>
 
         <a
@@ -195,6 +196,9 @@ const INFO_PAGE = `<!DOCTYPE html>
           aria-label="Ouvrir la présentation HASH"
         >
           <img src="/vignette-2" alt="HASH">
+          <p class="erreur-image" hidden>
+            Image indisponible : hash.jpeg.PNG
+          </p>
         </a>
       </div>
     </section>
@@ -202,13 +206,17 @@ const INFO_PAGE = `<!DOCTYPE html>
     <section id="informations" hidden>
       <a class="retour" href="#accueil">← Retour</a>
       <h1>WEED</h1>
-      <p>Espace de présentation et d’information.</p>
+      <p class="description">
+        Espace de présentation et d’information.
+      </p>
     </section>
 
     <section id="actualites" hidden>
       <a class="retour" href="#accueil">← Retour</a>
       <h1>HASH</h1>
-      <p>Espace de présentation et d’information.</p>
+      <p class="description">
+        Espace de présentation et d’information.
+      </p>
     </section>
   </main>
 
@@ -216,28 +224,36 @@ const INFO_PAGE = `<!DOCTYPE html>
     const pages = ["accueil", "informations", "actualites"];
 
     function afficherPage() {
-      const destination = location.hash.slice(1);
+      const destination = window.location.hash.slice(1);
       const active = pages.includes(destination)
         ? destination
         : "accueil";
 
-      pages.forEach(function(id) {
+      pages.forEach(function (id) {
         document.getElementById(id).hidden = id !== active;
       });
 
       window.scrollTo(0, 0);
     }
 
+    document.querySelectorAll(".vignette img").forEach(function (img) {
+      function afficherErreur() {
+        img.hidden = true;
+        img.nextElementSibling.hidden = false;
+      }
+
+      img.addEventListener("error", afficherErreur);
+
+      if (img.complete && img.naturalWidth === 0) {
+        afficherErreur();
+      }
+    });
+
     window.addEventListener("hashchange", afficherPage);
     afficherPage();
   </script>
 </body>
 </html>`;
-
-function logError(error) {
-  const message = String(error.message || error);
-  console.error(message.split(TOKEN).join("[TOKEN]"));
-}
 
 async function telegram(method, body) {
   const multipart = body instanceof FormData;
@@ -258,14 +274,19 @@ async function telegram(method, body) {
 
   if (!response.ok || !data.ok) {
     throw new Error(
-      `${method} : ${data.description || "Erreur Telegram"}`
+      `${method} : ${data.description || "Erreur Telegram."}`
     );
   }
 
   return data.result;
 }
 
-let photoId = null;
+function logError(error) {
+  const message = String(error?.message || error);
+  console.error(message.split(TOKEN).join("[TOKEN MASQUÉ]"));
+}
+
+let photoId;
 
 async function sendWelcome(chatId) {
   if (photoId) {
@@ -291,25 +312,20 @@ async function sendWelcome(chatId) {
   );
 
   const message = await telegram("sendPhoto", form);
-
-  photoId = message.photo?.at(-1)?.file_id || null;
+  photoId = message.photo?.at(-1)?.file_id;
 }
 
 async function handleRequest(req, res) {
-  const pathname = new URL(
-    req.url,
-    "http://localhost"
-  ).pathname;
+  const pathname = new URL(req.url, "http://localhost").pathname;
 
-  // Envoi des images de vignettes au navigateur.
   if (
     req.method === "GET" &&
-    Object.hasOwn(ASSETS, pathname)
+    Object.prototype.hasOwnProperty.call(ASSETS, pathname)
   ) {
     const asset = ASSETS[pathname];
 
     try {
-      const content = await fs.promises.readFile(
+      const buffer = await fs.promises.readFile(
         path.join(__dirname, asset.file)
       );
 
@@ -318,14 +334,16 @@ async function handleRequest(req, res) {
         "Cache-Control": "no-store"
       });
 
-      res.end(content);
+      res.end(buffer);
     } catch {
-      console.error(
-        `Image de vignette introuvable : ${asset.file}`
-      );
+      console.error(`Image introuvable ou illisible : ${asset.file}`);
 
-      res.writeHead(404);
-      res.end("Image introuvable");
+      res.writeHead(404, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store"
+      });
+
+      res.end(`Image introuvable : ${asset.file}`);
     }
 
     return;
@@ -356,9 +374,7 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if (
-    req.headers["x-telegram-bot-api-secret-token"] !== SECRET
-  ) {
+  if (req.headers["x-telegram-bot-api-secret-token"] !== SECRET) {
     res.writeHead(403);
     res.end();
     return;
@@ -382,9 +398,7 @@ async function handleRequest(req, res) {
   let update;
 
   try {
-    update = JSON.parse(
-      Buffer.concat(chunks).toString("utf8")
-    );
+    update = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
     res.writeHead(400);
     res.end();
@@ -392,16 +406,12 @@ async function handleRequest(req, res) {
   }
 
   const message = update.message;
-
   const command = (message?.text || "")
     .trim()
     .split(/\s+/)[0]
     .split("@")[0];
 
-  if (
-    message?.chat?.type === "private" &&
-    command === "/start"
-  ) {
+  if (message?.chat?.type === "private" && command === "/start") {
     await sendWelcome(message.chat.id);
   }
 
@@ -410,7 +420,7 @@ async function handleRequest(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  handleRequest(req, res).catch(error => {
+  handleRequest(req, res).catch((error) => {
     logError(error);
 
     if (!res.headersSent) {
