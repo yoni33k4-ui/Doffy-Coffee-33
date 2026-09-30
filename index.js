@@ -14,17 +14,21 @@ if (!TOKEN) {
   throw new Error("BOT_TOKEN manquant dans Environment sur Render.");
 }
 
-if (!/^https:\/\//.test(BASE_URL)) {
-  throw new Error("RENDER_EXTERNAL_URL doit être une URL HTTPS.");
+try {
+  if (new URL(BASE_URL).protocol !== "https:") {
+    throw new Error();
+  }
+} catch {
+  throw new Error("RENDER_EXTERNAL_URL doit être une URL HTTPS valide.");
 }
 
 if (!SECRET || !/^[A-Za-z0-9_-]{1,256}$/.test(SECRET)) {
   throw new Error(
-    "WEBHOOK_SECRET manquant ou invalide : utilise lettres, chiffres, tirets ou underscores."
+    "WEBHOOK_SECRET manquant ou invalide : lettres, chiffres, tirets ou underscores."
   );
 }
 
-// Nom exact de l’image dans GitHub.
+// Nom exact de l’image présente dans GitHub.
 const IMAGE_NAME = "accueil.jpg.PNG";
 const IMAGE_PATH = path.join(__dirname, IMAGE_NAME);
 
@@ -73,33 +77,142 @@ const INFO_PAGE = `<!DOCTYPE html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Doffy Coffee 33</title>
+
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
-      padding: 32px 20px;
-      background: #111;
+      background: #000;
       color: #fff;
       font-family: Arial, sans-serif;
-      line-height: 1.6;
-      text-align: center;
     }
 
     main {
-      max-width: 600px;
+      width: 100%;
+      max-width: 650px;
       margin: auto;
+      padding: 28px 18px;
     }
 
     h1 {
+      margin: 0 0 28px;
+      text-align: center;
       color: #f5c542;
+      font-size: 28px;
+    }
+
+    .vignettes {
+      display: grid;
+      gap: 18px;
+    }
+
+    .vignette {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 150px;
+      padding: 20px 12px;
+      border: 1px solid #333;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #111, #000);
+      color: #fff;
+      text-decoration: none;
+      text-align: center;
+      overflow: hidden;
+    }
+
+    .vignette span {
+      font-family: Impact, "Arial Black", sans-serif;
+      font-size: clamp(26px, 7vw, 46px);
+      font-weight: 900;
+      font-style: italic;
+      text-transform: uppercase;
+      letter-spacing: -1px;
+    }
+
+    .vignette:active {
+      transform: scale(0.98);
+    }
+
+    .vignette:focus-visible,
+    .retour:focus-visible {
+      outline: 3px solid #f5c542;
+      outline-offset: 4px;
+    }
+
+    .retour {
+      display: inline-block;
+      margin-bottom: 28px;
+      padding: 12px 18px;
+      border: 1px solid #444;
+      border-radius: 10px;
+      color: #fff;
+      text-decoration: none;
+    }
+
+    p {
+      font-size: 18px;
+      line-height: 1.6;
+    }
+
+    [hidden] {
+      display: none !important;
     }
   </style>
 </head>
+
 <body>
   <main>
-    <h1>Doffy Coffee 33</h1>
-    <p>Bienvenue sur notre page d’information.</p>
-    <p>Nos actualités seront publiées ici.</p>
+    <section id="accueil">
+      <h1>Doffy Coffee 33</h1>
+
+      <div class="vignettes">
+        <a class="vignette" href="#informations">
+          <span>Informations</span>
+        </a>
+
+        <a class="vignette" href="#actualites">
+          <span>Actualités</span>
+        </a>
+      </div>
+    </section>
+
+    <section id="informations" hidden>
+      <a class="retour" href="#accueil">← Retour</a>
+      <h1>Informations</h1>
+      <p>Bienvenue sur notre page d’information.</p>
+    </section>
+
+    <section id="actualites" hidden>
+      <a class="retour" href="#accueil">← Retour</a>
+      <h1>Actualités</h1>
+      <p>Nos actualités seront publiées ici.</p>
+    </section>
   </main>
+
+  <script>
+    const pages = ["accueil", "informations", "actualites"];
+
+    function afficherPage() {
+      const destination = location.hash.slice(1);
+      const active = pages.includes(destination)
+        ? destination
+        : "accueil";
+
+      for (const id of pages) {
+        document.getElementById(id).hidden = id !== active;
+      }
+
+      window.scrollTo(0, 0);
+    }
+
+    window.addEventListener("hashchange", afficherPage);
+    afficherPage();
+  </script>
 </body>
 </html>`;
 
@@ -175,7 +288,8 @@ async function handleRequest(req, res) {
 
   if (req.method === "GET" && pathname === "/info") {
     res.writeHead(200, {
-      "Content-Type": "text/html; charset=utf-8"
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store"
     });
 
     res.end(INFO_PAGE);
@@ -227,7 +341,7 @@ async function handleRequest(req, res) {
 
   if (
     message?.chat?.type === "private" &&
-    /^\/start(?:@\w+)?(?:\s|$)/i.test(message.text || "")
+    /^\\/start(?:@\\w+)?(?:\\s|$)/i.test(message.text || "")
   ) {
     await sendWelcome(message.chat.id);
   }
