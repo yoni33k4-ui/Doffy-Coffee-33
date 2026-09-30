@@ -30,7 +30,7 @@ try {
   );
 }
 
-// Nom exact de ton image dans GitHub.
+// Image envoyée dans le message d’accueil du bot.
 const IMAGE_NAME = "accueil.jpg.PNG";
 const IMAGE_PATH = path.join(__dirname, IMAGE_NAME);
 
@@ -41,6 +41,18 @@ if (!fs.existsSync(IMAGE_PATH)) {
 }
 
 const IMAGE = fs.readFileSync(IMAGE_PATH);
+
+// Images des deux vignettes de la mini-app.
+const ASSETS = {
+  "/vignette-1": {
+    file: "weed.jpeg",
+    type: "image/jpeg"
+  },
+  "/vignette-2": {
+    file: "hash.jpeg",
+    type: "image/jpeg"
+  }
+};
 
 const WELCOME = `⭐ BIENVENUE CHEZ DOFFY COFFEE 33 ⭐
 
@@ -116,22 +128,21 @@ const INFO_PAGE = `<!DOCTYPE html>
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 150px;
-      padding: 20px 12px;
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
       border: 1px solid #333;
       border-radius: 12px;
-      background: linear-gradient(135deg, #111, #000);
+      background: #111;
       color: #fff;
       text-decoration: none;
-      text-align: center;
     }
 
-    .vignette span {
-      font-family: Impact, "Arial Black", sans-serif;
-      font-size: clamp(26px, 7vw, 46px);
-      font-weight: 900;
-      font-style: italic;
-      text-transform: uppercase;
+    .vignette img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
     }
 
     .vignette:active {
@@ -170,26 +181,34 @@ const INFO_PAGE = `<!DOCTYPE html>
       <h1>Doffy Coffee 33</h1>
 
       <div class="vignettes">
-        <a class="vignette" href="#informations">
-          <span>Informations</span>
+        <a
+          class="vignette"
+          href="#informations"
+          aria-label="Ouvrir la présentation WEED"
+        >
+          <img src="/vignette-1" alt="WEED">
         </a>
 
-        <a class="vignette" href="#actualites">
-          <span>Actualités</span>
+        <a
+          class="vignette"
+          href="#actualites"
+          aria-label="Ouvrir la présentation HASH"
+        >
+          <img src="/vignette-2" alt="HASH">
         </a>
       </div>
     </section>
 
     <section id="informations" hidden>
       <a class="retour" href="#accueil">← Retour</a>
-      <h1>Informations</h1>
-      <p>Bienvenue sur notre page d’information.</p>
+      <h1>WEED</h1>
+      <p>Espace de présentation et d’information.</p>
     </section>
 
     <section id="actualites" hidden>
       <a class="retour" href="#accueil">← Retour</a>
-      <h1>Actualités</h1>
-      <p>Nos actualités seront publiées ici.</p>
+      <h1>HASH</h1>
+      <p>Espace de présentation et d’information.</p>
     </section>
   </main>
 
@@ -281,6 +300,36 @@ async function handleRequest(req, res) {
     req.url,
     "http://localhost"
   ).pathname;
+
+  // Envoi des images de vignettes au navigateur.
+  if (
+    req.method === "GET" &&
+    Object.hasOwn(ASSETS, pathname)
+  ) {
+    const asset = ASSETS[pathname];
+
+    try {
+      const content = await fs.promises.readFile(
+        path.join(__dirname, asset.file)
+      );
+
+      res.writeHead(200, {
+        "Content-Type": asset.type,
+        "Cache-Control": "no-store"
+      });
+
+      res.end(content);
+    } catch {
+      console.error(
+        `Image de vignette introuvable : ${asset.file}`
+      );
+
+      res.writeHead(404);
+      res.end("Image introuvable");
+    }
+
+    return;
+  }
 
   if (req.method === "GET" && pathname === "/") {
     res.writeHead(200, {
