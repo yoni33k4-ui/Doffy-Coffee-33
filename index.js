@@ -2,16 +2,22 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const TOKEN = process.env.BOT_TOKEN;
-const SECRET = process.env.WEBHOOK_SECRET;
-const BASE_URL = (
-  process.env.RENDER_EXTERNAL_URL || ""
-).trim().replace(/\/$/, "");
+const TOKEN = (process.env.BOT_TOKEN || "").trim();
+const SECRET = (process.env.WEBHOOK_SECRET || "").trim();
+const BASE_URL = (process.env.RENDER_EXTERNAL_URL || "")
+  .trim()
+  .replace(/\/$/, "");
 
 const PORT = Number(process.env.PORT || 3000);
 
 if (!TOKEN) {
-  throw new Error("BOT_TOKEN manquant dans Environment sur Render.");
+  throw new Error("BOT_TOKEN manquant dans Render.");
+}
+
+if (!/^[A-Za-z0-9_-]{1,256}$/.test(SECRET)) {
+  throw new Error(
+    "WEBHOOK_SECRET invalide : lettres, chiffres, tirets et underscores uniquement."
+  );
 }
 
 try {
@@ -19,21 +25,19 @@ try {
     throw new Error();
   }
 } catch {
-  throw new Error("RENDER_EXTERNAL_URL doit être une URL HTTPS valide.");
-}
-
-if (!SECRET || !/^[A-Za-z0-9_-]{1,256}$/.test(SECRET)) {
   throw new Error(
-    "WEBHOOK_SECRET manquant ou invalide : lettres, chiffres, tirets ou underscores."
+    "RENDER_EXTERNAL_URL doit contenir une URL HTTPS valide."
   );
 }
 
-// Nom exact de l’image présente dans GitHub.
+// Nom exact de ton image dans GitHub.
 const IMAGE_NAME = "accueil.jpg.PNG";
 const IMAGE_PATH = path.join(__dirname, IMAGE_NAME);
 
 if (!fs.existsSync(IMAGE_PATH)) {
-  throw new Error(`Image introuvable : ${IMAGE_NAME}`);
+  throw new Error(
+    "Image introuvable : ajoute accueil.jpg.PNG à côté de index.js."
+  );
 }
 
 const IMAGE = fs.readFileSync(IMAGE_PATH);
@@ -91,7 +95,6 @@ const INFO_PAGE = `<!DOCTYPE html>
     }
 
     main {
-      width: 100%;
       max-width: 650px;
       margin: auto;
       padding: 28px 18px;
@@ -113,7 +116,6 @@ const INFO_PAGE = `<!DOCTYPE html>
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 100%;
       min-height: 150px;
       padding: 20px 12px;
       border: 1px solid #333;
@@ -122,7 +124,6 @@ const INFO_PAGE = `<!DOCTYPE html>
       color: #fff;
       text-decoration: none;
       text-align: center;
-      overflow: hidden;
     }
 
     .vignette span {
@@ -131,15 +132,13 @@ const INFO_PAGE = `<!DOCTYPE html>
       font-weight: 900;
       font-style: italic;
       text-transform: uppercase;
-      letter-spacing: -1px;
     }
 
     .vignette:active {
       transform: scale(0.98);
     }
 
-    .vignette:focus-visible,
-    .retour:focus-visible {
+    a:focus-visible {
       outline: 3px solid #f5c542;
       outline-offset: 4px;
     }
@@ -203,9 +202,9 @@ const INFO_PAGE = `<!DOCTYPE html>
         ? destination
         : "accueil";
 
-      for (const id of pages) {
+      pages.forEach(function(id) {
         document.getElementById(id).hidden = id !== active;
-      }
+      });
 
       window.scrollTo(0, 0);
     }
@@ -215,6 +214,11 @@ const INFO_PAGE = `<!DOCTYPE html>
   </script>
 </body>
 </html>`;
+
+function logError(error) {
+  const message = String(error.message || error);
+  console.error(message.split(TOKEN).join("[TOKEN]"));
+}
 
 async function telegram(method, body) {
   const multipart = body instanceof FormData;
@@ -234,7 +238,9 @@ async function telegram(method, body) {
   const data = await response.json();
 
   if (!response.ok || !data.ok) {
-    throw new Error("La requête Telegram a échoué.");
+    throw new Error(
+      `${method} : ${data.description || "Erreur Telegram"}`
+    );
   }
 
   return data.result;
@@ -259,7 +265,6 @@ async function sendWelcome(chatId) {
   form.append("chat_id", String(chatId));
   form.append("caption", WELCOME);
   form.append("reply_markup", JSON.stringify(KEYBOARD));
-
   form.append(
     "photo",
     new Blob([IMAGE], { type: "image/png" }),
@@ -339,9 +344,14 @@ async function handleRequest(req, res) {
 
   const message = update.message;
 
+  const command = (message?.text || "")
+    .trim()
+    .split(/\s+/)[0]
+    .split("@")[0];
+
   if (
     message?.chat?.type === "private" &&
-    /^\\/start(?:@\\w+)?(?:\\s|$)/i.test(message.text || "")
+    command === "/start"
   ) {
     await sendWelcome(message.chat.id);
   }
@@ -351,8 +361,8 @@ async function handleRequest(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  handleRequest(req, res).catch(() => {
-    console.error("Erreur lors du traitement du message.");
+  handleRequest(req, res).catch(error => {
+    logError(error);
 
     if (!res.headersSent) {
       res.writeHead(500);
@@ -370,12 +380,9 @@ server.listen(PORT, "0.0.0.0", async () => {
       allowed_updates: ["message"]
     });
 
-    console.log("Bot d’information prêt.");
-  } catch {
-    console.error(
-      "Échec du webhook : vérifie les variables Render."
-    );
-
+    console.log("Bot prêt : webhook configuré.");
+  } catch (error) {
+    logError(error);
     server.close(() => process.exit(1));
   }
 });
