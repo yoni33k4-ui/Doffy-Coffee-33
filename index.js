@@ -4,190 +4,191 @@ const path = require("node:path");
 
 const TOKEN = process.env.BOT_TOKEN;
 const SECRET = process.env.WEBHOOK_SECRET;
-const BASE_URL = process.env.RENDER_EXTERNAL_URL;
+const BASE_URL = (
+  process.env.RENDER_EXTERNAL_URL || ""
+).trim().replace(/\/$/, "");
 
-if (!TOKEN || !SECRET || !BASE_URL) {
-  console.error(
-    "Configuration manquante : BOT_TOKEN, WEBHOOK_SECRET ou RENDER_EXTERNAL_URL."
+const PORT = Number(process.env.PORT || 3000);
+
+if (!TOKEN) {
+  throw new Error("BOT_TOKEN manquant dans Environment sur Render.");
+}
+
+if (!/^https:\/\//.test(BASE_URL)) {
+  throw new Error("RENDER_EXTERNAL_URL doit être une URL HTTPS.");
+}
+
+if (!SECRET || !/^[A-Za-z0-9_-]{1,256}$/.test(SECRET)) {
+  throw new Error(
+    "WEBHOOK_SECRET manquant ou invalide : utilise lettres, chiffres, tirets ou underscores."
   );
-  process.exit(1);
 }
 
-// Nom exact de ton image dans GitHub
+// Nom exact de l’image dans GitHub.
 const IMAGE_NAME = "accueil.jpg.PNG";
-const imagePath = path.join(__dirname, IMAGE_NAME);
+const IMAGE_PATH = path.join(__dirname, IMAGE_NAME);
 
-if (!fs.existsSync(imagePath)) {
-  console.error(`Image introuvable : ${IMAGE_NAME}`);
-  process.exit(1);
+if (!fs.existsSync(IMAGE_PATH)) {
+  throw new Error(`Image introuvable : ${IMAGE_NAME}`);
 }
 
-const image = fs.readFileSync(imagePath);
-let photoId = null;
+const IMAGE = fs.readFileSync(IMAGE_PATH);
 
-async function telegram(method, data = {}) {
-  const multipart = data instanceof FormData;
+const WELCOME = `⭐ BIENVENUE CHEZ DOFFY COFFEE 33 ⭐
+
+Retrouve ici nos informations et nos actualités.
+
+👇 Accède à notre page d’information en cliquant sur le bouton Mini app 📲
+
+ℹ️ Appuie sur /start pour afficher de nouveau ce message.`;
+
+const KEYBOARD = {
+  inline_keyboard: [
+    [
+      {
+        text: "✈️ Tato Talk",
+        url: "https://tato.im/doffycoffeee33"
+      }
+    ],
+    [
+      {
+        text: "📢 New Canal",
+        url: "https://t.me/+eT4aDsgGE8s4ZjU0"
+      }
+    ],
+    [
+      {
+        text: "📲 Mini app",
+        web_app: {
+          url: `${BASE_URL}/info`
+        }
+      }
+    ]
+  ]
+};
+
+const INFO_PAGE = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Doffy Coffee 33</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 32px 20px;
+      background: #111;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      text-align: center;
+    }
+
+    main {
+      max-width: 600px;
+      margin: auto;
+    }
+
+    h1 {
+      color: #f5c542;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Doffy Coffee 33</h1>
+    <p>Bienvenue sur notre page d’information.</p>
+    <p>Nos actualités seront publiées ici.</p>
+  </main>
+</body>
+</html>`;
+
+async function telegram(method, body) {
+  const multipart = body instanceof FormData;
 
   const response = await fetch(
     `https://api.telegram.org/bot${TOKEN}/${method}`,
     {
       method: "POST",
-      ...(multipart
-        ? {
-            body: data
-          }
-        : {
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(data)
-          }),
-      signal: AbortSignal.timeout(45000)
+      headers: multipart
+        ? undefined
+        : { "Content-Type": "application/json" },
+      body: multipart ? body : JSON.stringify(body),
+      signal: AbortSignal.timeout(30000)
     }
   );
 
-  const result = await response.json();
+  const data = await response.json();
 
-  if (!result.ok) {
-    throw new Error(result.description || "Erreur Telegram");
+  if (!response.ok || !data.ok) {
+    throw new Error("La requête Telegram a échoué.");
   }
 
-  return result.result;
+  return data.result;
 }
 
-// Texte affiché sous l’image
-const accueil = `⛰️⭐️BIENVENUE CHEZ DOFFY COFFEE 33⭐️⛰️
+let photoId = null;
 
-🏪 Doffy Coffee 33 est enfin disponible sur Telegram ! 🏪🔥
-
-💎 Premium quality : ✅
-📦 Livraison : ✅
-📍 En main propre : ✅
-📞 Service Client : Une équipe réactive et à l’écoute ✅
-
-👇 Accède au menu en cliquant sur le bouton boutique 📲
-
-⚠️ Important : Appuie sur /start pour actualiser le menu et profiter pleinement des dernières mises à jour de la mini-app.`;
-
-// Les liens sont lus dans les variables Render
-function bouton(text, variable, miniApp = false) {
-  const url = (process.env[variable] || "").trim();
-
-  if (!url) {
-    return {
-      text,
-      callback_data: "lien_manquant"
-    };
-  }
-
-  if (miniApp) {
-    return {
-      text,
-      web_app: { url }
-    };
-  }
-
-  return {
-    text,
-    url
-  };
-}
-
-function clavier() {
-  return {
-    inline_keyboard: [
-      [
-        bouton("✈️ Tato Talk", "TATO_URL")
-      ],
-      [
-        bouton("⭐ Avis", "AVIS_URL"),
-        bouton("📞 Contact", "CONTACT_URL")
-      ],
-      [
-        bouton("📢 New Canal", "CANAL_URL"),
-        bouton("🟢 WhatsApp", "WHATSAPP_URL")
-      ],
-      [
-        bouton("🏪 Boutique 🥼", "BOUTIQUE_URL", true)
-      ]
-    ]
-  };
-}
-
-// Un seul envoi : photo + texte + boutons
-async function envoyerAccueil(chatId) {
-  const replyMarkup = clavier();
-
-  // Réutilise la photo déjà enregistrée chez Telegram
+async function sendWelcome(chatId) {
   if (photoId) {
     await telegram("sendPhoto", {
       chat_id: chatId,
       photo: photoId,
-      caption: accueil,
-      reply_markup: replyMarkup
+      caption: WELCOME,
+      reply_markup: KEYBOARD
     });
+
     return;
   }
 
-  // Premier envoi : téléverse l’image depuis le dépôt
   const form = new FormData();
 
   form.append("chat_id", String(chatId));
+  form.append("caption", WELCOME);
+  form.append("reply_markup", JSON.stringify(KEYBOARD));
+
   form.append(
     "photo",
-    new Blob([image], { type: "image/png" }),
+    new Blob([IMAGE], { type: "image/png" }),
     IMAGE_NAME
-  );
-  form.append("caption", accueil);
-  form.append(
-    "reply_markup",
-    JSON.stringify(replyMarkup)
   );
 
   const message = await telegram("sendPhoto", form);
 
-  if (message.photo && message.photo.length > 0) {
-    photoId = message.photo.at(-1).file_id;
-  }
+  photoId = message.photo?.at(-1)?.file_id || null;
 }
 
-async function traiter(update) {
-  if (update.callback_query) {
-    await telegram("answerCallbackQuery", {
-      callback_query_id: update.callback_query.id,
-      text: "Ce lien n’est pas encore configuré.",
-      show_alert: true
-    });
-    return;
-  }
+async function handleRequest(req, res) {
+  const pathname = new URL(
+    req.url,
+    "http://localhost"
+  ).pathname;
 
-  const message = update.message;
-
-  if (!message || message.chat.type !== "private") {
-    return;
-  }
-
-  const commandeStart =
-    /^\/start(?:@\w+)?(?:\s|$)/.test(message.text || "");
-
-  if (commandeStart) {
-    await envoyerAccueil(message.chat.id);
-  }
-}
-
-// Serveur nécessaire pour Render et Telegram
-const server = http.createServer(async (req, res) => {
-  if (req.method === "GET") {
+  if (req.method === "GET" && pathname === "/") {
     res.writeHead(200, {
       "Content-Type": "text/plain; charset=utf-8"
     });
-    res.end("Serveur Doffy Coffee 33 en ligne");
+
+    res.end("Bot d’information actif ✅");
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/info") {
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8"
+    });
+
+    res.end(INFO_PAGE);
+    return;
+  }
+
+  if (req.method !== "POST" || pathname !== "/telegram") {
+    res.writeHead(404);
+    res.end();
     return;
   }
 
   if (
-    req.method !== "POST" ||
-    req.url !== "/telegram" ||
     req.headers["x-telegram-bot-api-secret-token"] !== SECRET
   ) {
     res.writeHead(403);
@@ -195,50 +196,72 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  try {
-    let body = "";
+  const chunks = [];
+  let size = 0;
 
-    for await (const chunk of req) {
-      body += chunk;
+  for await (const chunk of req) {
+    size += chunk.length;
 
-      if (body.length > 1000000) {
-        throw new Error("Requête trop grande");
-      }
+    if (size > 1024 * 1024) {
+      res.writeHead(413);
+      res.end();
+      return;
     }
 
-    await traiter(JSON.parse(body));
-
-    res.writeHead(200);
-    res.end("OK");
-  } catch (error) {
-    console.error("Erreur :", error.message);
-    res.writeHead(500);
-    res.end();
+    chunks.push(chunk);
   }
+
+  let update;
+
+  try {
+    update = JSON.parse(
+      Buffer.concat(chunks).toString("utf8")
+    );
+  } catch {
+    res.writeHead(400);
+    res.end();
+    return;
+  }
+
+  const message = update.message;
+
+  if (
+    message?.chat?.type === "private" &&
+    /^\/start(?:@\w+)?(?:\s|$)/i.test(message.text || "")
+  ) {
+    await sendWelcome(message.chat.id);
+  }
+
+  res.writeHead(200);
+  res.end("OK");
+}
+
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch(() => {
+    console.error("Erreur lors du traitement du message.");
+
+    if (!res.headersSent) {
+      res.writeHead(500);
+    }
+
+    res.end();
+  });
 });
 
-server.listen(
-  process.env.PORT || 3000,
-  "0.0.0.0",
-  async () => {
-    try {
-      const bot = await telegram("getMe");
+server.listen(PORT, "0.0.0.0", async () => {
+  try {
+    await telegram("setWebhook", {
+      url: `${BASE_URL}/telegram`,
+      secret_token: SECRET,
+      allowed_updates: ["message"]
+    });
 
-      console.log(`Bot connecté : @${bot.username}`);
+    console.log("Bot d’information prêt.");
+  } catch {
+    console.error(
+      "Échec du webhook : vérifie les variables Render."
+    );
 
-      await telegram("setWebhook", {
-        url: `${BASE_URL.replace(/\/$/, "")}/telegram`,
-        secret_token: SECRET,
-        allowed_updates: [
-          "message",
-          "callback_query"
-        ]
-      });
-
-      console.log("Accueil avec image prêt.");
-    } catch (error) {
-      console.error("Erreur de connexion :", error.message);
-      process.exit(1);
-    }
+    server.close(() => process.exit(1));
   }
-);
+});
