@@ -15,9 +15,9 @@ app.use(express.json({ limit: "256kb" }));
 
 const TOKEN = (process.env.BOT_TOKEN || "").trim();
 
-const BASE_URL = (
-  process.env.BASE_URL || ""
-).trim().replace(/\/$/, "");
+const BASE_URL = (process.env.BASE_URL || "")
+  .trim()
+  .replace(/\/$/, "");
 
 const WEBHOOK_SECRET = (
   process.env.WEBHOOK_SECRET || ""
@@ -60,11 +60,47 @@ const CONTACT_URL =
   "https://t.me/o_commande33k";
 
 // ========================================
-// SÉCURITÉ
+// VALIDATION CONFIGURATION
 // ========================================
 
-// Limitation des commandes par utilisateur.
-// Stockage temporaire en mémoire.
+function verifierConfiguration() {
+  const manquantes = [];
+
+  if (!TOKEN) manquantes.push("BOT_TOKEN");
+  if (!BASE_URL) manquantes.push("BASE_URL");
+  if (!WEBHOOK_SECRET) {
+    manquantes.push("WEBHOOK_SECRET");
+  }
+  if (!ADMIN_ID) manquantes.push("ADMIN_ID");
+
+  if (manquantes.length) {
+    console.error(
+      "Variables manquantes :",
+      manquantes.join(", ")
+    );
+    return false;
+  }
+
+  if (!/^https:\/\//.test(BASE_URL)) {
+    console.error("BASE_URL doit utiliser HTTPS");
+    return false;
+  }
+
+  if (
+    !/^[A-Za-z0-9_-]{1,256}$/.test(WEBHOOK_SECRET)
+  ) {
+    console.error(
+      "WEBHOOK_SECRET contient des caractères invalides"
+    );
+    return false;
+  }
+
+  return true;
+}
+
+// ========================================
+// SÉCURITÉ ANTI-SPAM
+// ========================================
 
 const rateLimits = new Map();
 
@@ -102,7 +138,6 @@ function antiSpam(userId) {
   return true;
 }
 
-// Nettoyage périodique
 setInterval(() => {
   const now = Date.now();
 
@@ -120,6 +155,10 @@ function estAdmin(userId) {
   );
 }
 
+// ========================================
+// PROTECTION WEBHOOK
+// ========================================
+
 function webhookAutorise(req) {
   if (!WEBHOOK_SECRET) return false;
 
@@ -136,7 +175,7 @@ function webhookAutorise(req) {
 }
 
 // ========================================
-// APPELS TELEGRAM
+// API TELEGRAM
 // ========================================
 
 async function telegram(method, body = {}) {
@@ -168,7 +207,7 @@ async function telegram(method, body = {}) {
 }
 
 // ========================================
-// MESSAGE D'ACCUEIL
+// MESSAGE DE BIENVENUE
 // ========================================
 
 const TEXTE = `
@@ -203,7 +242,7 @@ Découvre notre catalogue et navigue facilement grâce au menu.
 `.trim();
 
 // ========================================
-// BOUTONS
+// BOUTONS ACCUEIL
 // ========================================
 
 function boutonsAccueil(admin = false) {
@@ -267,69 +306,86 @@ function boutonsAccueil(admin = false) {
 }
 
 // ========================================
-// PHOTO
-// ========================================
-
-async function envoyerPhoto(chatId) {
-  if (!fs.existsSync(PHOTO_PATH)) {
-    return;
-  }
-
-  const image = await fs.promises.readFile(PHOTO_PATH);
-
-  const form = new FormData();
-
-  form.append("chat_id", String(chatId));
-
-  form.append(
-    "caption",
-    "🏴‍☠️ DOFFY COFFEE 33 🏴‍☠️"
-  );
-
-  form.append(
-    "photo",
-    new Blob([image], { type: "image/png" }),
-    PHOTO_NAME
-  );
-
-  const response = await fetch(
-    `https://api.telegram.org/bot${TOKEN}/sendPhoto`,
-    {
-      method: "POST",
-      body: form,
-      signal: AbortSignal.timeout(30000)
-    }
-  );
-
-  const result = await response.json();
-
-  if (!result.ok) {
-    throw new Error(
-      result.description || "Erreur photo"
-    );
-  }
-}
-
-// ========================================
-// ACCUEIL
+// ACCUEIL PHOTO + TEXTE + BOUTONS
 // ========================================
 
 async function envoyerAccueil(chatId, userId) {
-  try {
-    await envoyerPhoto(chatId);
-  } catch (error) {
-    console.error("Photo :", error.message);
+  const boutons = boutonsAccueil(estAdmin(userId));
+
+  if (fs.existsSync(PHOTO_PATH)) {
+    try {
+      const image = await fs.promises.readFile(
+        PHOTO_PATH
+      );
+
+      const form = new FormData();
+
+      form.append("chat_id", String(chatId));
+      form.append("caption", TEXTE);
+      form.append("parse_mode", "HTML");
+
+      form.append(
+        "reply_markup",
+        JSON.stringify(boutons)
+      );
+
+      form.append(
+        "photo",
+        new Blob([image], { type: "image/png" }),
+        PHOTO_NAME
+      );
+
+      const response = await fetch(
+        `https://api.telegram.org/bot${TOKEN}/sendPhoto`,
+        {
+          method: "POST",
+          body: form,
+          signal: AbortSignal.timeout(30000)
+        }
+      );
+
+      const result = await response.json();
+
+      if (!result.ok) {
+        throw new Error(
+          result.description || "Erreur photo"
+        );
+      }
+
+      console.log(
+        "Accueil avec photo envoyé :",
+        chatId
+      );
+
+      return;
+    } catch (error) {
+      console.error(
+        "Erreur envoi photo :",
+        error.message
+      );
+    }
+  } else {
+    console.warn(
+      "Photo introuvable :",
+      PHOTO_NAME
+    );
   }
 
+  // Secours : accueil sans photo
   await telegram("sendMessage", {
     chat_id: chatId,
     text: TEXTE,
     parse_mode: "HTML",
-    reply_markup: boutonsAccueil(
-      estAdmin(userId)
-    ),
-    disable_web_page_preview: true
+    reply_markup: boutons,
+    link_preview_options: {
+      is_disabled: true
+    }
   });
+
+  console.log(
+    "Accueil texte envoyé :",
+    chatId
+  );
 }
 
 // ========================================
@@ -342,7 +398,6 @@ async function envoyerAdmin(chatId, userId) {
       chat_id: chatId,
       text: "⛔ Accès non autorisé."
     });
-
     return;
   }
 
@@ -350,7 +405,7 @@ async function envoyerAdmin(chatId, userId) {
     chat_id: chatId,
     text:
       "🔐 <b>ADMINISTRATION DOFFY COFFEE</b>\n\n" +
-      "Accède à ton espace de gestion sécurisé.",
+      "Accède à ton espace de gestion.",
     parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: [
@@ -378,7 +433,7 @@ async function envoyerAdmin(chatId, userId) {
 // ========================================
 
 async function envoyerAide(chatId, userId) {
-  let text =
+  let texte =
     "🏴‍☠️ <b>DOFFY COFFEE 33</b>\n\n" +
     "🏠 /start — Accueil\n" +
     "🏠 /accueil — Menu principal\n" +
@@ -386,12 +441,12 @@ async function envoyerAide(chatId, userId) {
     "📡 /statut — État du bot\n";
 
   if (estAdmin(userId)) {
-    text += "🔐 /admin — Administration\n";
+    texte += "🔐 /admin — Administration\n";
   }
 
   await telegram("sendMessage", {
     chat_id: chatId,
-    text,
+    text: texte,
     parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: [
@@ -423,27 +478,13 @@ async function envoyerStatut(chatId) {
 }
 
 // ========================================
-// WEBHOOK
+// TRAITEMENT DES MESSAGES
 // ========================================
-
-app.post("/webhook", (req, res) => {
-  if (!webhookAutorise(req)) {
-    return res.sendStatus(403);
-  }
-
-  res.sendStatus(200);
-
-  traiterUpdate(req.body).catch(error => {
-    console.error(
-      "Erreur traitement :",
-      error.message
-    );
-  });
-});
 
 async function traiterUpdate(update) {
   if (update.callback_query) {
     const callback = update.callback_query;
+
     const userId = callback.from?.id;
     const chatId = callback.message?.chat?.id;
 
@@ -452,7 +493,6 @@ async function traiterUpdate(update) {
     });
 
     if (!chatId || !userId) return;
-
     if (!antiSpam(userId)) return;
 
     if (callback.data === "accueil") {
@@ -471,18 +511,26 @@ async function traiterUpdate(update) {
 
   if (!userId || !chatId) return;
 
-  if (!antiSpam(userId)) {
-    return;
-  }
-
   const commande = message.text
     .trim()
     .split(/\s+/)[0]
     .split("@")[0]
     .toLowerCase();
 
+  // Le premier /start est prioritaire
+  if (commande === "/start") {
+    console.log(
+      "Commande /start reçue :",
+      chatId
+    );
+
+    await envoyerAccueil(chatId, userId);
+    return;
+  }
+
+  if (!antiSpam(userId)) return;
+
   switch (commande) {
-    case "/start":
     case "/accueil":
       await envoyerAccueil(chatId, userId);
       break;
@@ -506,7 +554,29 @@ async function traiterUpdate(update) {
 }
 
 // ========================================
-// CONFIGURATION BOT
+// WEBHOOK TELEGRAM
+// ========================================
+
+app.post("/webhook", (req, res) => {
+  if (!webhookAutorise(req)) {
+    console.warn(
+      "Requête webhook non autorisée"
+    );
+    return res.sendStatus(403);
+  }
+
+  res.sendStatus(200);
+
+  traiterUpdate(req.body).catch(error => {
+    console.error(
+      "Erreur traitement update :",
+      error.message
+    );
+  });
+});
+
+// ========================================
+// CONFIGURATION TELEGRAM
 // ========================================
 
 async function configurerTelegram() {
@@ -516,65 +586,8 @@ async function configurerTelegram() {
     `Bot connecté : @${info.result.username}`
   );
 
-  await telegram("setMyCommands", {
-    commands: [
-      {
-        command: "start",
-        description: "🏠 Accueil"
-      },
-      {
-        command: "accueil",
-        description: "🏠 Menu principal"
-      },
-      {
-        command: "aide",
-        description: "❓ Centre d'aide"
-      },
-      {
-        command: "statut",
-        description: "📡 État du bot"
-      }
-    ]
-  });
-
-  if (ADMIN_ID) {
-    await telegram("setMyCommands", {
-      scope: {
-        type: "chat",
-        chat_id: Number(ADMIN_ID)
-      },
-      commands: [
-        {
-          command: "start",
-          description: "🏠 Accueil"
-        },
-        {
-          command: "accueil",
-          description: "🏠 Menu principal"
-        },
-        {
-          command: "admin",
-          description: "🔐 Administration"
-        },
-        {
-          command: "aide",
-          description: "❓ Centre d'aide"
-        },
-        {
-          command: "statut",
-          description: "📡 État du bot"
-        }
-      ]
-    });
-  }
-
-  await telegram("setChatMenuButton", {
-    menu_button: {
-      type: "commands"
-    }
-  });
-
-  await telegram("setWebhook", {
+  // Configurer le webhook avant les commandes
+  const webhook = await telegram("setWebhook", {
     url: `${BASE_URL}/webhook`,
     secret_token: WEBHOOK_SECRET,
     allowed_updates: [
@@ -584,7 +597,109 @@ async function configurerTelegram() {
     drop_pending_updates: false
   });
 
-  console.log("Webhook sécurisé configuré");
+  console.log(
+    "Webhook configuré :",
+    webhook.result
+  );
+
+  // Commandes publiques
+  try {
+    await telegram("setMyCommands", {
+      commands: [
+        {
+          command: "start",
+          description: "Accueil"
+        },
+        {
+          command: "accueil",
+          description: "Menu principal"
+        },
+        {
+          command: "aide",
+          description: "Aide"
+        },
+        {
+          command: "statut",
+          description: "Etat du bot"
+        }
+      ]
+    });
+  } catch (error) {
+    console.error(
+      "Erreur commandes publiques :",
+      error.message
+    );
+  }
+
+  // Commandes administrateur
+  if (ADMIN_ID) {
+    try {
+      await telegram("setMyCommands", {
+        scope: {
+          type: "chat",
+          chat_id: Number(ADMIN_ID)
+        },
+        commands: [
+          {
+            command: "start",
+            description: "Accueil"
+          },
+          {
+            command: "accueil",
+            description: "Menu principal"
+          },
+          {
+            command: "admin",
+            description: "Administration"
+          },
+          {
+            command: "aide",
+            description: "Aide"
+          },
+          {
+            command: "statut",
+            description: "Etat du bot"
+          }
+        ]
+      });
+    } catch (error) {
+      console.error(
+        "Commandes admin non configurées :",
+        error.message
+      );
+    }
+  }
+
+  try {
+    await telegram("setChatMenuButton", {
+      menu_button: {
+        type: "commands"
+      }
+    });
+  } catch (error) {
+    console.error(
+      "Erreur menu Telegram :",
+      error.message
+    );
+  }
+
+  const verification = await telegram(
+    "getWebhookInfo"
+  );
+
+  console.log(
+    "Webhook actif :",
+    verification.result.url
+  );
+
+  if (verification.result.last_error_message) {
+    console.warn(
+      "Dernière erreur webhook :",
+      verification.result.last_error_message
+    );
+  }
+
+  console.log("DOFFY COFFEE 33 PRÊT");
 }
 
 // ========================================
@@ -599,31 +714,26 @@ app.get("/", (req, res) => {
 });
 
 app.get("/health", (req, res) => {
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    service: "Doffy Coffee 33"
+  });
 });
 
 app.listen(PORT, "0.0.0.0", async () => {
   console.log(`Serveur démarré : ${PORT}`);
 
-  if (
-    !TOKEN ||
-    !BASE_URL ||
-    !WEBHOOK_SECRET ||
-    !ADMIN_ID
-  ) {
-    console.error(
-      "Variables manquantes : BOT_TOKEN, BASE_URL, WEBHOOK_SECRET ou ADMIN_ID"
-    );
+  if (!verifierConfiguration()) {
     return;
   }
 
   try {
     await configurerTelegram();
-    console.log("DOFFY COFFEE 33 PRÊT");
   } catch (error) {
     console.error(
-      "Erreur configuration :",
+      "Erreur configuration Telegram :",
       error.message
     );
   }
 });
+
